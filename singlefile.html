@@ -683,6 +683,36 @@ footer {
     transform: translateY(0);
     box-shadow: var(--shadow-sm);
 }
+
+.info-button {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    margin-left: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    transition: background-color 0.2s, transform 0.2s;
+    color: inherit;
+    vertical-align: middle;
+}
+
+.info-button:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    transform: scale(1.1);
+}
+
+.info-button:active {
+    transform: scale(0.95);
+}
+
+.info-button svg {
+    display: block;
+}
     </style>
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#fb2651">
@@ -739,6 +769,13 @@ footer {
         <div class="zone-header">
             <div class="zone-title">
                 <h2 id="zoneName">zone</h2>
+                <button class="info-button" onclick="showZoneInfo()" title="Zone Information">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="16" x2="12" y2="12"></line>
+                        <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                    </svg>
+                </button>
                 <span id="zoneId" style="display: none;"></span>
                 <a id="zoneAuthor" href="#" target="_blank">by Author</a>
             </div>
@@ -783,7 +820,8 @@ footer {
             <input type="file" id="importData" style="display: none;" onchange="loadData(event)">
         </div>
     </footer>
-    <script>const container = document.getElementById('container');
+    <script>
+const container = document.getElementById('container');
 const zoneViewer = document.getElementById('zoneViewer');
 let zoneFrame = document.getElementById('zoneFrame');
 const searchBar = document.getElementById('searchBar');
@@ -1485,6 +1523,106 @@ function loadDMCA() {
     document.getElementById('popupOverlay').style.display = "flex";
 }
 
+let _allStatsCache = null;
+
+async function getAllStats() {
+  if (_allStatsCache) {
+    return _allStatsCache;
+  }
+
+  const BASE_URL =
+    "https://data.jsdelivr.com/v1/stats/packages/gh/gn-math/html@main/files";
+  const PERIOD = "year";
+  const PAGE_BATCH = 5;
+
+  let page = 1;
+  let done = false;
+  const combinedMap = Object.create(null);
+
+  while (!done) {
+    const pages = Array.from({ length: PAGE_BATCH }, (_, i) => page + i);
+
+    const responses = await Promise.all(
+      pages.map(p =>
+        fetch(`${BASE_URL}?period=${PERIOD}&page=${p}&limit=100`)
+          .then(r => (r.ok ? r.json() : []))
+      )
+    );
+
+    for (const data of responses) {
+      if (!Array.isArray(data) || data.length === 0) {
+        done = true;
+        break;
+      }
+
+      for (const item of data) {
+        if (!item?.name) continue;
+
+        const match = item.name.match(/^\/(\d+)([.-])/);
+        if (!match) continue;
+
+        const id = match[1];
+
+        if (!combinedMap[id]) {
+          combinedMap[id] = {
+            hits: 0,
+            bandwidth: 0
+          };
+        }
+
+        combinedMap[id].hits += item.hits?.total ?? 0;
+        combinedMap[id].bandwidth += item.bandwidth?.total ?? 0;
+      }
+    }
+
+    page += PAGE_BATCH;
+  }
+
+  _allStatsCache = combinedMap;
+  return combinedMap;
+}
+
+async function getStats(id) {
+  id = String(id);
+  const allStats = await getAllStats();
+
+  return allStats[id]?.hits ?? 0;
+}
+
+function showZoneInfo() {
+    let id = document.getElementById('zoneId').textContent;
+    document.getElementById('popupTitle').textContent = "Info";
+    const popupBody = document.getElementById('popupBody');
+    popupBody.innerHTML = `<p>Loading...</p>`
+    popupBody.contentEditable = false;
+    document.getElementById('popupOverlay').style.display = "flex";
+    fetch(`https://api.github.com/repos/gn-math/html/commits?path=${id}.html`).then(res => res.json()).then(async json => {
+        let stats = await getStats (id);
+        idjson = zones.filter(a=>a.id===id)[0]
+        document.getElementById('popupTitle').textContent = `${idjson.name} Info`;
+        const date = new Date(json.at(-1).commit.author.date);
+        let formatteddate = new Intl.DateTimeFormat("en-US", {
+  month: "long",
+  day: "numeric",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true
+}).format(date);
+        popupBody.innerHTML = `
+        <p>
+        <b>Id</b>: ${id}<br>
+        <b>Name</b>: ${idjson.name}<br>
+        ${idjson.author?`<b>Game Author</b>: ${idjson.author}<br>`:""}
+        ${idjson.authorLink?`<b>Game Author Link</b>: <a style="color:#FFFF00;" href=${idjson.authorLink}>${idjson.authorLink}</a><br>`:""}
+        ${idjson.special?`<b>Tags</b>: ${idjson.special}<br>`:""}
+        <b>Gn-Math Adder</b>: ${json.at(-1).commit.author.name}<br>
+        <b>Date Added</b>: ${formatteddate}<br>
+        <b>Times Played (Globally)</b>: ${Number(stats).toLocaleString("en-US")}
+        </p>`;
+    })
+}
+
 function closePopup() {
     document.getElementById('popupOverlay').style.display = "none";
 }
@@ -1517,7 +1655,8 @@ XMLHttpRequest.prototype.open = function (method, url) {
 
 HTMLCanvasElement.prototype.toDataURL = function (...args) {
     return "";
-};</script>
+};
+</script>
     <script>
         const search = new URLSearchParams(window.location.search);
         const privacy = search.get('privacy');
